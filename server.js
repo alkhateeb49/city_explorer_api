@@ -12,7 +12,9 @@ require('dotenv').config();
 const cors = require('cors');
 const superagent = require('superagent');
 
-
+let pg = require('pg');
+// const client = new pg.Client(process.env.DATABASE_URL);
+const client = new pg.Client({ connectionString: process.env.DATABASE_URL,ssl: { rejectUnauthorized: false } });
 
 
 app.use(cors());
@@ -55,32 +57,93 @@ function handleparks(req, res) {
   }
 }
 
+function checkExist(searchQuery, res) {
+
+  let sqlQuery = "SELECT * FROM citylocation WHERE cname = ($1) ";
+  let value = [searchQuery];
+  client.query(sqlQuery, value).then(data => {
+
+    if (data.rows.length === 0) {
+      const query = {
+        key: process.env.GEOCODE_API_KEY,
+        q: searchQuery,
+        limit: 1,
+        format: 'json'
+      }
+
+
+      let url = `https://us1.locationiq.com/v1/search.php`;
+      superagent.get(url).query(query).then(data => {
+        // console.log(data.body[0].lat);
+        try {
+          let longitude = data.body[0].lon;
+          let latitude = data.body[0].lat;
+          let displayName = data.body[0].display_name;
+          let sqlQuery = `insert into citylocation(cname,display_name, lat, lon) values ($1,$2,$3,$4)returning *`;
+          let value = [searchQuery, displayName, latitude, longitude];
+          client.query(sqlQuery, value).then(data => {
+            console.log('data returned back from db ', data);
+          });
+          let responseObject = new CityLocation(searchQuery, displayName, latitude, longitude);
+          res.status(200).send(responseObject);
+        } catch (error) {
+          res.status(500).send(error);
+        }
+
+      }).catch(error => {
+        res.status(500).send("Cannot connect with the api " + error);
+
+      });
+    }
+    else {
+      let responseObject = new CityLocation(data.rows[0].cname, data.rows[0].display_name, data.rows[0].lat, data.rows[0].lon);
+      res.status(200).send(responseObject);
+    }
+
+  }).catch(error => {
+    console.log('canoot data returned back from db in check function ', error);
+  });
+}
 
 
 
 //handle data for function
 function getLocationData(searchQuery, res) {
-  const query = {
-    key: process.env.GEOCODE_API_KEY,
-    q: searchQuery,
-    limit: 1,
-    format: 'json'
-  };
-  let url = 'https://us1.locationiq.com/v1/search.php';
-  superagent.get(url).query(query).then(data => {
-    try {
-      let longitude = data.body[0].lon;
-      let latitude = data.body[0].lat;
-      let displayName = data.body[0].display_name;
-      let responseObject = new CityLocation(searchQuery, displayName, latitude, longitude);
-      res.status(200).send(responseObject);
-    } catch (error) {
-      res.status(500).send('Sorry, something went wron' + error);
-    }
+  checkExist(searchQuery, res);
 
-  }).catch(error => {
-    res.status(500).send('Sorry, something went wron' + error);
-  });
+  // const query = {
+  //   key: process.env.GEOCODE_API_KEY,
+  //   q: searchQuery,
+  //   limit: 1,
+  //   format: 'json'
+  // };
+  // let url = 'https://us1.locationiq.com/v1/search.php';
+  // superagent.get(url).query(query).then(data => {
+  //   try {
+  //     let longitude = data.body[0].lon;
+  //     let latitude = data.body[0].lat;
+  //     let displayName = data.body[0].display_name;
+
+  //     let sqlQuery = `insert into citylocation(cname,lat,long) values ($1,$2,$3)returning*`;
+  //     let value = [displayName, latitude, longitude];
+  //     client.query(sqlQuery, value).then(data => {
+  //       console.log("data inserted" + data);
+  //       // res.status(200).send("data inserted",data.text[0].lat);
+  //     }).catch(error => {
+  //       // console.log("data not inserted"+error);
+  //       res.status(500).send("data not inserted", error);
+  //     });
+
+
+  //     let responseObject = new CityLocation(searchQuery, displayName, latitude, longitude);
+  //     res.status(200).send(responseObject);
+  //   } catch (error) {
+  //     res.status(500).send('Sorry, something went wron' + error);
+  //   }
+
+  // }).catch(error => {
+  //   res.status(500).send('Sorry, something went wron' + error);
+  // });
 
 }
 
@@ -215,6 +278,10 @@ function CityParks(name, address, fee, description, url) {
 }
 
 
-app.listen(PORT, () => {
-  console.log('the app is listening to ' + PORT);
+client.connect().then(data => {
+  app.listen(PORT, () => {
+    console.log('the app is listening to ' + PORT);
+  });
+}).catch(error => {
+  console.log('error in connect to database ' + error);
 });
