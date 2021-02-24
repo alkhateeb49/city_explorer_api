@@ -26,6 +26,8 @@ const PORT = process.env.PORT;
 app.get('/location', handlelocation);
 app.get('/weather', handleweather);
 app.get('/parks', handleparks);
+app.get('/movies', handlemovies);
+app.get('/yelp', handleyelp);
 
 // handle function
 function handlelocation(req, res) {
@@ -56,6 +58,24 @@ function handleparks(req, res) {
     res.status(500).send('Sorry, something went wron' + error);
   }
 }
+function handlemovies(req, res) {
+  try {
+    let searchQuery = req.query.search_query;
+    getMoviesData(searchQuery, res);
+  } catch (error) {
+    res.status(500).send('Sorry, something went wron' + error);
+  }
+}
+function handleyelp(req, res) {
+  try {
+    let searchQuery = req.query.search_query;
+    getYelpData(searchQuery,res);
+  } catch (error) {
+    res.status(500).send('Sorry, something went wron' + error);
+  }
+}
+
+
 
 function checkExist(searchQuery, res) {
 
@@ -256,6 +276,61 @@ function getParksData(searchQuery, res) {
   });
 }
 
+function getMoviesData(searchQuery, res) {
+  let query = {
+    api_key: process.env.MOVIE_API_KEY,
+    query: searchQuery
+  };
+  let url = 'https://api.themoviedb.org/3/search/movie';
+  superagent.get(url).query(query).then(data => {
+    try {
+      let arrayOfObjects = [];
+      data.body.results.forEach(value => {
+        let title =value.title;
+        let overview=value.overview;
+        let average_votes=value.average_votes;
+        let total_votes=value.total_votes;
+        let image_url='https://image.tmdb.org/t/p/w500/'+value.poster_path;
+        let popularity=value.popularity;
+        let released_on=value.released_on;
+        let responseObject = new CityMovies(title, overview, average_votes, total_votes, image_url,popularity,released_on);
+        arrayOfObjects.push(responseObject);
+      });
+      res.status(200).send(arrayOfObjects);
+    } catch (error) {
+      res.status(500).send("Sorry, something went wrong"+error);
+    }
+  }).catch((error) => {
+    res.status(500).send("Sorry, something went wrong from promise" + error);
+  });
+}
+var page = 1;
+function getYelpData(searchQuery,res) {
+  const pageNum = 20;
+  const start = ((page - 1) * pageNum + 1);
+  const yelpKey=process.env.YELP_API_KEY;
+  let query = {
+    location:searchQuery,
+    limit:pageNum,
+    offset:start
+  };
+  page++;
+  let url = "https://api.yelp.com/v3/businesses/search";
+  superagent.get(url).query(query).set('Authorization', `Bearer ${yelpKey}`).then(data => {
+    try {
+      let arr=[];
+      JSON.parse(data.text).businesses.forEach(data=>{
+        arr.push(new CityYelp(data.name,data.image_url,data.price,data.rating,data.url));
+      });
+      res.status(200).send(arr);
+    } catch (error) {
+      res.status(500).send("Sorry, something went wrong"+error);
+    }
+  }).catch((error) => {
+    res.status(500).send("Sorry, something went wrong from promise" + error);
+  });
+}
+
 
 
 //constructors
@@ -276,9 +351,25 @@ function CityParks(name, address, fee, description, url) {
   this.description = description;
   this.url = url;
 }
+function CityYelp(name,image_url,price,rating,url){
+  this.name = name;
+  this.image_url =image_url ;
+  this.price =price ;
+  this.rating = rating;
+  this.url =url ;
+}
+function CityMovies(title, overview, average_votes, total_votes, image_url,popularity,released_on){
+  this.title = title;
+  this.overview =overview ;
+  this.average_votes =average_votes ;
+  this.total_votes = total_votes;
+  this.image_url =image_url ;
+  this.popularity =popularity ;
+  this.released_on =released_on ;
+}
 
 
-client.connect().then(data => {
+client.connect().then((data) => {
   app.listen(PORT, () => {
     console.log('the app is listening to ' + PORT);
   });
